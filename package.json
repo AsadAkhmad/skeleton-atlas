@@ -1,0 +1,17 @@
+{
+  "name": "skeleton-atlas",
+  "version": "1.0.0",
+  "description": "Interactive 3D human skeleton: all 206 bones, named and selectable, with size, function and articulation details",
+  "main": "index.html",
+  "scripts": {
+    "build": "node build_app.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "esbuild": "^0.24.0",
+    "three": "^0.170.0"
+  }
+}
