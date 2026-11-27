@@ -4,7 +4,8 @@ An interactive 3D adult human skeleton in the browser: all 206 bones, each named
 
 - Rotate freely, zoom, pan; jump to Front, Side, Back and Top views
 - Click a bone (or pick it from the searchable list) to see its Latin name, side, typical adult size, function, key features, articulations and muscle attachments
-- Focus dimming, an Explode slider, name labels, and toggles for costal cartilage and teeth
+- Focus dimming, an Explode slider, name labels, and toggles for cartilage and teeth
+- Cartilage everywhere it belongs: costal cartilage, intervertebral discs, pubic symphysis, knee menisci, nose and jaw-joint cartilage, plus thin articular cartilage on every joint surface (it follows its bones when you explode the skeleton)
 
 Open `index.html` in a browser (fonts load from Google Fonts), or deploy the folder as a static site.
 

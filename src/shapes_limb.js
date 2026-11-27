@@ -132,7 +132,7 @@ export function femur() {
   const body = union(0.9, head, neck, gt, lt, crest, iline, shaft, linea, flare, medC, latC, epiM, epiL, patS);
   let f = sub(body, box([cx, cyD + 0.6, -1.3], [0.7, 2.4, 2.3], 0.3), 0.3); // intercondylar notch
   f = sub(f, ell([5.4, -3.0, -2.2], [0.9, 1.4, 0.9]), 0.4); // trochanteric fossa
-  return { f, min: [-5, -48, -6], max: [11, 5, 6], h: 0.15, bump: { amp: 0.06, freq: 0.7 } };
+  return { f, min: [-8, -51, -9], max: [13, 6, 9], h: 0.15, bump: { amp: 0.06, freq: 0.7 } };
 }
 
 export function tibia() {

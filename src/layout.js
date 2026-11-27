@@ -238,12 +238,12 @@ export function decorative() {
   for (let i = 1; i <= 10; i++) {
     const m = cartilageMesh(i);
     if (!m) continue;
-    out.push({ id: 'cartilage-' + i + '-L', kind: 'cartilage', mesh: m });
-    out.push({ id: 'cartilage-' + i + '-R', kind: 'cartilage', mesh: mirrorMesh(m) });
+    out.push({ id: 'cartilage-' + i + '-L', kind: 'cartilage', mesh: m, owners: [`rib-${i}-L`] });
+    out.push({ id: 'cartilage-' + i + '-R', kind: 'cartilage', mesh: mirrorMesh(m), owners: [`rib-${i}-R`] });
   }
   const T = makeTeeth();
-  out.push({ id: 'teeth-upper', kind: 'teeth', mesh: transformMesh(T.upper, SK_T) });
-  out.push({ id: 'teeth-lower', kind: 'teeth', mesh: transformMesh(T.lower, SK_T) });
+  out.push({ id: 'teeth-upper', kind: 'teeth', mesh: transformMesh(T.upper, SK_T), owners: ['maxilla-L', 'maxilla-R'] });
+  out.push({ id: 'teeth-lower', kind: 'teeth', mesh: transformMesh(T.lower, SK_T), owners: ['mandible'] });
   return out;
 }
 export const POSES = { vertMat, vertPose, SK_T, STERN_M, SAC_M, HAND_M, FOOT_M, ELBOW };

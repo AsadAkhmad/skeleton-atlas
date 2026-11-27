@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeStage, patchBone, geometryFrom } from './stage.js';
 import { ROSTER, decorative, ribArcLength } from './layout.js';
+import { staticCartilage, articularCaps } from './cartilage.js';
 import { INFO, REGIONS, REGION_COLORS } from './data.js';
 import { RES } from './sdf.js';
 import * as AX from './shapes_axial.js';
@@ -33,7 +34,7 @@ const ghostCart = new THREE.MeshStandardMaterial({ color: 0x9fb3c8, roughness: 0
 // ---------------------------------------------------------------- state
 const bones = []; // {id, def, info, mesh, center, region, sub}
 const byId = new Map();
-const deco = []; // {mesh, kind}
+const deco = []; // {mesh, kind, owners: [bone]} cartilage and teeth that ride along with their bones
 const S = { selected: null, hovered: null, dim: true, labels: innerWidth > 760, cartilage: true, teeth: true, autorotate: false, explode: 0, hiddenRegions: new Set(), isolate: false };
 let dirty = true, shadowDirty = true;
 const invalidate = () => { dirty = true; };
@@ -100,15 +101,22 @@ async function buildAll() {
   }
   loadTxt.textContent = 'cartilage and teeth…';
   await tick();
-  for (const d of decorative()) {
+  const addDeco = (d, owners) => {
     const g = geometryFrom(d.mesh);
     const mesh = new THREE.Mesh(g, d.kind === 'teeth' ? teethMat : cartMat);
-    mesh.castShadow = d.kind === 'teeth' ? true : false; mesh.receiveShadow = true;
-    world.add(mesh); deco.push({ mesh, kind: d.kind });
-  }
+    mesh.castShadow = d.kind === 'teeth'; mesh.receiveShadow = true;
+    world.add(mesh); deco.push({ mesh, kind: d.kind, owners: owners.map((id) => byId.get(id)).filter(Boolean) });
+  };
+  for (const d of [...decorative(), ...staticCartilage()]) addDeco(d, d.owners || []);
+  loadTxt.textContent = 'joint cartilage…';
+  await tick();
+  const tc = performance.now();
+  const caps = articularCaps(bones.map((b) => ({ id: b.id, region: b.region, positions: b.mesh.geometry.attributes.position.array, normals: b.mesh.geometry.attributes.normal.array, indices: b.mesh.geometry.index.array })));
+  for (const c of caps) addDeco(c, [c.owner]);
+  const capsMs = performance.now() - tc;
   bar.style.width = '100%';
   console.log(`built ${bones.length} bones, ${(tris / 1e6).toFixed(2)}M triangles in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
-  window.__stats = { bones: bones.length, tris, secs: (performance.now() - t0) / 1000 };
+  window.__stats = { bones: bones.length, tris, secs: (performance.now() - t0) / 1000, capsMs: Math.round(capsMs), caps: deco.length };
 }
 
 // ---------------------------------------------------------------- GPU picking
@@ -170,11 +178,14 @@ function applyStates() {
       b.mesh.castShadow = st !== 'ghost'; b.mesh.receiveShadow = st !== 'ghost';
     }
   }
-  const ghostC = S.selected && S.dim;
   for (const d of deco) {
-    d.mesh.visible = d.kind === 'cartilage' ? S.cartilage && !S.hiddenRegions.has('Thorax') && !(S.isolate && S.selected) : S.teeth && !S.hiddenRegions.has('Skull') && !(S.isolate && S.selected);
-    if (d.kind === 'cartilage') d.mesh.material = ghostC ? ghostCart : cartMat;
-    if (d.kind === 'teeth') d.mesh.material = ghostC ? ghostCart : teethMat;
+    const own = d.owners;
+    const shown = d.kind === 'cartilage' ? S.cartilage : S.teeth;
+    const bonesOk = own.length === 0 || own.every((o) => o.mesh.visible);
+    const isolated = S.isolate && S.selected && !own.includes(S.selected);
+    d.mesh.visible = shown && bonesOk && !isolated;
+    const ghost = S.selected && S.dim && !own.includes(S.selected);
+    d.mesh.material = ghost ? ghostCart : (d.kind === 'teeth' ? teethMat : cartMat);
   }
   invalidateShadow();
   updateListState();
@@ -196,12 +207,15 @@ function computeExplode() {
 function setExplode(v) {
   S.explode = v;
   for (const b of bones) b.mesh.position.copy(b.explodeVec).multiplyScalar(v);
-  // decorative follow rib / skull groups roughly: hide when exploded
-  for (const d of deco) d.mesh.scale.setScalar(1);
-  const hideDeco = v > 0.02;
-  S.decoHidden = hideDeco;
+  // cartilage and teeth ride along with the bones they belong to (a disc sits midway between its two vertebrae)
+  for (const d of deco) {
+    if (!d.owners.length) continue;
+    d.mesh.position.set(0, 0, 0);
+    for (const o of d.owners) d.mesh.position.add(o.mesh.position);
+    d.mesh.position.divideScalar(d.owners.length);
+  }
+  S.decoHidden = false;
   applyStates();
-  if (hideDeco) for (const d of deco) d.mesh.visible = false;
   invalidateShadow();
 }
 
