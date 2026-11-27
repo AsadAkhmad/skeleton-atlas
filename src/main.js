@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { makeStage, patchBone, geometryFrom } from './stage.js';
 import { ROSTER, decorative, ribArcLength } from './layout.js';
 import { staticCartilage, articularCaps } from './cartilage.js';
+import { SYSTEMS, buildSystem } from './systems.js';
 import { INFO, REGIONS, REGION_COLORS } from './data.js';
 import { RES } from './sdf.js';
 import * as AX from './shapes_axial.js';
@@ -31,11 +32,21 @@ const cartMat = new THREE.MeshStandardMaterial({ color: 0xb9ccd0, roughness: 0.5
 const teethMat = new THREE.MeshStandardMaterial({ color: 0xf5efe1, roughness: 0.28, vertexColors: true });
 const ghostCart = new THREE.MeshStandardMaterial({ color: 0x9fb3c8, roughness: 0.9, vertexColors: true, transparent: true, opacity: 0.06, depthWrite: false });
 
+const makeOrg = (o) => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.46, metalness: 0, ...o });
+const ORG = {
+  base: makeOrg({}),
+  hover: makeOrg({ emissive: 0x3f7da8, emissiveIntensity: 0.4 }),
+  select: makeOrg({ emissive: 0xe0861a, emissiveIntensity: 0.5 }),
+  ghost: makeOrg({ transparent: true, opacity: 0.1, depthWrite: false, roughness: 0.9 }),
+};
+
 // ---------------------------------------------------------------- state
 const bones = []; // {id, def, info, mesh, center, region, sub}
 const byId = new Map();
 const deco = []; // {mesh, kind, owners: [bone]} cartilage and teeth that ride along with their bones
-const S = { selected: null, hovered: null, dim: true, labels: innerWidth > 760, cartilage: true, teeth: true, autorotate: false, explode: 0, hiddenRegions: new Set(), isolate: false };
+const S = { selected: null, hovered: null, dim: true, labels: innerWidth > 760, cartilage: true, teeth: true, autorotate: false, explode: 0, hiddenRegions: new Set(), isolate: false, boneMode: 'solid', selOrgan: null, hoverOrgan: null };
+const organs = []; // soft-tissue items from the body systems: {id, key, system, info, mesh, on, isOrgan}
+const sysBuilt = new Map(); // system id -> { items, on }
 let dirty = true, shadowDirty = true;
 const invalidate = () => { dirty = true; };
 const invalidateShadow = () => { shadowDirty = true; dirty = true; };
@@ -138,6 +149,7 @@ function pick(clientX, clientY) {
   const saved = [];
   for (const b of bones) { saved.push(b.mesh.material); b.mesh.material = b.idMat; b.mesh.castShadow = false; }
   const dsaved = deco.map((d) => d.mesh.visible); deco.forEach((d) => { d.mesh.visible = false; });
+  const osaved = organs.map((o) => o.mesh.material); organs.forEach((o) => { o.mesh.material = o.idMat; o.mesh.castShadow = false; });
   const oldBG = scene.background; const oldEnv = scene.environment; scene.environment = null;
   const pr = renderer.getPixelRatio();
   camera.setViewOffset(r.width, r.height, x, y, 1, 1);
@@ -155,24 +167,46 @@ function pick(clientX, clientY) {
   scene.environment = oldEnv;
   bones.forEach((b, i) => { b.mesh.material = saved[i]; b.mesh.castShadow = b.mesh.userData.cast !== false && b.state !== 'ghost'; });
   deco.forEach((d, i) => { d.mesh.visible = dsaved[i]; });
+  organs.forEach((o, i) => { o.mesh.material = osaved[i]; o.mesh.castShadow = o.state !== 'ghost'; });
   const id = pickBuf[0] + (pickBuf[1] << 8);
+  if (id > bones.length && id <= bones.length + organs.length) return organs[id - bones.length - 1];
   return id > 0 && id <= bones.length ? bones[id - 1] : null;
 }
 
 // ---------------------------------------------------------------- states & visibility
 function boneVisible(b) {
+  if (S.boneMode === 'hidden') return false;
   if (S.hiddenRegions.has(b.region)) return false;
   if (S.isolate && S.selected && S.selected !== b) return false;
   return true;
+}
+const anySel = () => S.selected || S.selOrgan;
+function boneState(b) {
+  if (S.selected === b) return 'select';
+  if (S.hovered === b) return 'hover';
+  if (anySel() && S.dim) return 'ghost';
+  if (S.boneMode === 'ghost') return 'ghost';
+  return 'base';
+}
+function organState(o) {
+  if (S.selOrgan === o) return 'select';
+  if (S.hoverOrgan === o) return 'hover';
+  if (anySel() && S.dim) return 'ghost';
+  return 'base';
+}
+function applyOrgans() {
+  for (const o of organs) {
+    const sys = sysBuilt.get(o.system);
+    o.mesh.visible = !!(sys && sys.on && o.on && S.explode < 0.02) && !(S.isolate && S.selOrgan && S.selOrgan !== o);
+    const st = organState(o);
+    if (o.state !== st) { o.state = st; o.mesh.material = ORG[st]; o.mesh.castShadow = st !== 'ghost'; }
+  }
 }
 function applyStates() {
   for (const b of bones) {
     const vis = boneVisible(b);
     b.mesh.visible = vis;
-    let st = 'base';
-    if (S.selected === b) st = 'select';
-    else if (S.hovered === b) st = 'hover';
-    else if (S.selected && S.dim) st = 'ghost';
+    const st = boneState(b);
     if (b.state !== st) {
       b.state = st; b.mesh.material = MATS[st];
       b.mesh.castShadow = st !== 'ghost'; b.mesh.receiveShadow = st !== 'ghost';
@@ -182,11 +216,12 @@ function applyStates() {
     const own = d.owners;
     const shown = d.kind === 'cartilage' ? S.cartilage : S.teeth;
     const bonesOk = own.length === 0 || own.every((o) => o.mesh.visible);
-    const isolated = S.isolate && S.selected && !own.includes(S.selected);
+    const isolated = S.isolate && anySel() && !own.includes(S.selected);
     d.mesh.visible = shown && bonesOk && !isolated;
-    const ghost = S.selected && S.dim && !own.includes(S.selected);
+    const ghost = (anySel() && S.dim && !own.includes(S.selected)) || (S.boneMode === 'ghost' && !S.selected);
     d.mesh.material = ghost ? ghostCart : (d.kind === 'teeth' ? teethMat : cartMat);
   }
+  applyOrgans();
   invalidateShadow();
   updateListState();
 }
@@ -266,6 +301,8 @@ function focusBone(b, keepDir = true) {
 
 // ---------------------------------------------------------------- selection
 function select(b, opts = {}) {
+  if (b && b.isOrgan) return selectOrgan(b, opts);
+  S.selOrgan = null;
   S.selected = b || null;
   applyStates();
   renderDetails();
@@ -276,21 +313,19 @@ function select(b, opts = {}) {
   if (!b) $('#right').classList.remove('open');
   else $('#right').classList.add('open');
 }
-function hover(b) {
-  if (S.hovered === b) return;
-  S.hovered = b;
-  const prev = S.hoverPrev; S.hoverPrev = b;
+function hover(x) {
+  const o = x && x.isOrgan ? x : null, b = x && !x.isOrgan ? x : null;
+  if (S.hovered === b && S.hoverOrgan === o) return;
+  S.hovered = b; S.hoverOrgan = o;
   applyStatesLite();
-  tip(b);
+  tip(x || null);
 }
 function applyStatesLite() {
   for (const b of bones) {
-    let st = 'base';
-    if (S.selected === b) st = 'select';
-    else if (S.hovered === b) st = 'hover';
-    else if (S.selected && S.dim) st = 'ghost';
+    const st = boneState(b);
     if (b.state !== st) { b.state = st; b.mesh.material = MATS[st]; b.mesh.castShadow = st !== 'ghost'; }
   }
+  applyOrgans();
   $$('.item.hov').forEach((i) => i.classList.remove('hov'));
   if (S.hovered) { const it = itemEls.get(S.hovered.id); if (it) it.classList.add('hov'); }
   invalidate();
@@ -301,6 +336,7 @@ const tipEl = $('#tip');
 let tipPos = { x: 0, y: 0 };
 function tip(b) {
   if (!b) { tipEl.style.opacity = 0; return; }
+  if (b.isOrgan) { const sy = SYSTEMS.find((q) => q.id === b.system); tipEl.innerHTML = `<b>${b.info.name}</b><span>${sy ? sy.name : ''}</span>`; tipEl.style.opacity = 1; placeTip(); return; }
   tipEl.innerHTML = `<b>${displayName(b)}</b><span>${b.region}</span>`;
   tipEl.style.opacity = 1; placeTip();
 }
@@ -386,6 +422,7 @@ function resolveArt(b, token) {
 function renderDetails() {
   const root = $('#detail');
   const b = S.selected;
+  if (!b && S.selOrgan) return renderOrganDetails(root);
   if (!b) {
     root.innerHTML = `<div class="empty"><h2>Pick a bone</h2><p>Click any bone in the 3D view, or choose one from the list. You will see its name, size, function and how it connects to its neighbours.</p>
       <ul class="facts"><li><b>206</b><span>bones in an adult skeleton</span></li><li><b>80</b><span>axial bones: skull, spine, ribs, sternum</span></li><li><b>126</b><span>appendicular bones: limbs and girdles</span></li><li><b>~270</b><span>bones at birth, many fuse as we grow</span></li></ul>
@@ -486,7 +523,7 @@ function updateLabels() {
     let show = boneVisible(it.b) && !zoomed && !top;
     if (show && it.view === 'front' && (!front || side)) show = false;
     if (show && it.view === 'back' && (front || side)) show = false;
-    if (show && S.selected && S.dim && S.selected !== it.b) show = false;
+    if (show && (S.selected || S.selOrgan) && S.dim && S.selected !== it.b) show = false;
     it.show = show;
     if (!show) { it.d.style.display = 'none'; it.ln.style.display = 'none'; continue; }
     _v.copy(it.b.center).add(it.b.mesh.position).project(camera);
@@ -561,6 +598,8 @@ controls.addEventListener('change', invalidate);
 function bindUI() {
   $$('.views button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
   const tog = (id, key, after) => { const b = $(id); b.addEventListener('click', () => { S[key] = !S[key]; b.setAttribute('aria-pressed', String(S[key])); after && after(); applyStates(); invalidate(); }); b.setAttribute('aria-pressed', String(S[key])); };
+  $('#t-bones').addEventListener('click', () => setBoneMode({ solid: 'ghost', ghost: 'hidden', hidden: 'solid' }[S.boneMode]));
+  buildSystemsUI();
   tog('#t-labels', 'labels'); tog('#t-cart', 'cartilage'); tog('#t-teeth', 'teeth'); tog('#t-dim', 'dim'); tog('#t-rot', 'autorotate');
   let baseDist = null;
   $('#explode').addEventListener('input', (e) => {
@@ -572,7 +611,7 @@ function bindUI() {
       S.lastExplode = v; if (v === 0) baseDist = null;
     }
   });
-  $('#reset').addEventListener('click', () => { select(null); S.isolate = false; S.hiddenRegions.clear(); $$('.reg').forEach((s) => { s.classList.remove('off'); $('.eye', s).setAttribute('aria-pressed', 'true'); }); $('#explode').value = 0; $('#exv').textContent = '0%'; setExplode(0); setView('front'); });
+  $('#reset').addEventListener('click', () => { select(null); S.isolate = false; S.boneMode = 'solid'; setBoneMode('solid'); for (const st of sysBuilt.values()) st.on = false; syncSysUI(); S.hiddenRegions.clear(); $$('.reg').forEach((s) => { s.classList.remove('off'); $('.eye', s).setAttribute('aria-pressed', 'true'); }); $('#explode').value = 0; $('#exv').textContent = '0%'; setExplode(0); setView('front'); });
   $('#q').addEventListener('input', (e) => runSearch(e.target.value));
   $('#openleft').addEventListener('click', () => $('#left').classList.toggle('open'));
   $('#closeright').addEventListener('click', () => select(null));
@@ -585,6 +624,102 @@ function bindUI() {
     else if (e.key === '/') { $('#q').focus(); e.preventDefault(); }
   });
   addEventListener('resize', resize);
+}
+
+// ---------------------------------------------------------------- body systems (built on first use)
+const paintFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 24)));
+function selectOrgan(o, opts = {}) {
+  S.selected = null; S.selOrgan = o || null; S.hovered = null; S.hoverOrgan = null;
+  applyStates(); renderDetails();
+  if (o && opts.focus !== false) focusBone(o);
+  $('#right').classList.toggle('open', !!o);
+  syncSysUI();
+}
+function renderOrganDetails(root) {
+  const o = S.selOrgan, i = o.info, sy = SYSTEMS.find((q) => q.id === o.system);
+  root.innerHTML = `
+    <div class="hd">
+      <div class="crumb"><span class="sw" style="background:${sy.hex}"></span>${sy.name} <i>/</i> Soft tissue</div>
+      <h2>${i.name}</h2>
+      <div class="lat"><em>${i.latin || ''}</em></div>
+    </div>
+    <section class="size"><h3>Size <span class="muted">typical adult</span></h3>
+      <dl>${(i.size || []).map((r) => `<dt>${r.k}</dt><dd>${r.v}</dd>`).join('')}</dl></section>
+    <section><h3>Function</h3><p>${i.fn || ''}</p></section>
+    ${i.fact ? `<section class="fact"><h3>Good to know</h3><p>${i.fact}</p></section>` : ''}
+    <section class="loc"><div class="btns"><button id="ofocus">Zoom to it</button><button id="oiso" aria-pressed="${S.isolate}">Isolate</button><button id="ohide">Hide it</button></div>
+      <p class="muted" style="margin-top:10px">Soft-tissue shapes are stylised models placed against the skeleton, not scans. Sizes are typical adult values.</p></section>`;
+  $('#ofocus', root).onclick = () => focusBone(o);
+  $('#oiso', root).onclick = () => { S.isolate = !S.isolate; applyStates(); renderDetails(); };
+  $('#ohide', root).onclick = () => { o.on = false; selectOrgan(null); renderDetails(); syncSysUI(); applyStates(); };
+  root.scrollTop = 0;
+}
+function setBoneMode(m) {
+  S.boneMode = m;
+  const b = $('#t-bones'); if (b) { b.textContent = 'Bones: ' + { solid: 'Solid', ghost: 'Ghost', hidden: 'Off' }[m]; b.setAttribute('aria-pressed', String(m !== 'solid')); }
+  applyStates(); invalidate();
+}
+function addOrganMeshes(items) {
+  for (const it of items) {
+    const mesh = new THREE.Mesh(geometryFrom(it.mesh), ORG.base);
+    mesh.castShadow = true; mesh.receiveShadow = true; mesh.visible = false;
+    world.add(mesh);
+    const o = { ...it, mesh, on: true, isOrgan: true, state: 'base', region: 'Systems', sub: it.system };
+    organs.push(o);
+    const id = bones.length + organs.length;
+    o.idMat = new THREE.MeshBasicMaterial({ toneMapped: false });
+    o.idMat.color.setRGB((id & 255) / 255, ((id >> 8) & 255) / 255, 0, THREE.LinearSRGBColorSpace);
+    it.organ = o;
+  }
+}
+async function toggleSystem(id) {
+  let st = sysBuilt.get(id);
+  const row = $(`.sysrow[data-sys="${id}"]`);
+  if (!st) {
+    row.classList.add('busy'); await paintFrame();
+    const t0 = performance.now();
+    const items = buildSystem(id, { pos: (bid) => byId.get(bid).mesh.geometry.attributes.position.array });
+    addOrganMeshes(items);
+    st = { items, on: true }; sysBuilt.set(id, st);
+    console.log(`built system ${id}: ${items.length} parts, ${Math.round(performance.now() - t0)} ms`);
+    if (S.boneMode === 'solid') setBoneMode('ghost');
+    row.classList.remove('busy');
+    fillSysItems(id);
+    row.classList.add('open');
+  } else st.on = !st.on;
+  syncSysUI(); applyStates(); invalidateShadow();
+}
+function fillSysItems(id) {
+  const st = sysBuilt.get(id), box = $(`.sysrow[data-sys="${id}"] .sysitems`);
+  box.innerHTML = '';
+  for (const it of st.items) {
+    const o = it.organ, d = el('div', 'sysit');
+    d.innerHTML = `<button class="nm">${o.info.name}</button><button class="e" title="Show or hide">◉</button>`;
+    $('.nm', d).addEventListener('click', () => { o.on = true; if (!st.on) { st.on = true; } selectOrgan(o); });
+    $('.e', d).addEventListener('click', () => { o.on = !o.on; if (S.selOrgan === o && !o.on) selectOrgan(null); syncSysUI(); applyStates(); });
+    d.dataset.key = o.id; box.appendChild(d); o.row = d;
+  }
+}
+function syncSysUI() {
+  for (const sy of SYSTEMS) {
+    const row = $(`.sysrow[data-sys="${sy.id}"]`); if (!row) continue;
+    const st = sysBuilt.get(sy.id);
+    $('.systog', row).setAttribute('aria-pressed', String(!!(st && st.on)));
+    if (st) for (const it of st.items) { const o = it.organ; o.row.classList.toggle('off', !o.on); o.row.classList.toggle('sel', S.selOrgan === o); $('.e', o.row).textContent = o.on ? '◉' : '○'; }
+  }
+}
+function buildSystemsUI() {
+  const box = $('#sys'); if (!box) return;
+  box.innerHTML = '<div class="sysh"><span>Body systems</span><em>built when first opened</em></div>';
+  for (const sy of SYSTEMS) {
+    const row = el('div', 'sysrow'); row.dataset.sys = sy.id;
+    row.innerHTML = `<button class="systog" aria-pressed="false" ${sy.soon ? 'disabled' : ''} title="${sy.blurb}"><span class="sw" style="background:${sy.hex}"></span><span class="rn">${sy.name}</span><span class="rc">${sy.soon ? 'soon' : ''}</span></button><button class="sysexp" aria-label="List parts" ${sy.soon ? 'disabled' : ''}>▾</button><div class="sysitems"></div>`;
+    if (!sy.soon) {
+      $('.systog', row).addEventListener('click', () => toggleSystem(sy.id));
+      $('.sysexp', row).addEventListener('click', () => { if (sysBuilt.has(sy.id)) row.classList.toggle('open'); else toggleSystem(sy.id); });
+    }
+    box.appendChild(row);
+  }
 }
 
 // ---------------------------------------------------------------- boot

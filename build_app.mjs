@@ -7,6 +7,29 @@ const js = r.outputFiles[0].text.replace(/<\/script/g, '<\\/script');
 const css = `
 :root{--bg:#0d0f12;--bg2:#12151a;--panel:#14171c;--panel2:#191d23;--line:#262b33;--line2:#2f353e;--fg:#ece8e0;--muted:#979da6;--faint:#646a73;--accent:#e8b04a;--accent-ink:#1b1305;--blue:#6fa8d6;
 --serif:'Newsreader',Georgia,'Times New Roman',serif;--sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;color-scheme:dark}
+
+#sys{border-bottom:1px solid var(--line);padding:8px 8px 6px;max-height:44%;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line2) transparent;flex:none}
+.sysh{display:flex;justify-content:space-between;align-items:baseline;margin:2px 8px 6px;font:600 10.5px var(--sans);letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+.sysh em{font:11px var(--mono);font-style:normal;letter-spacing:0;text-transform:none}
+.sysrow{display:grid;grid-template-columns:1fr auto;align-items:center}
+.systog{display:flex;align-items:center;gap:8px;border:0;background:none;padding:6px 8px;border-radius:8px;font-size:12.5px;font-weight:600;text-align:left;color:var(--muted)}
+.systog:hover:not(:disabled){background:var(--panel2);color:var(--fg)}
+.systog[aria-pressed=true]{color:var(--fg)}
+.systog[aria-pressed=true] .sw{box-shadow:0 0 0 3px rgba(255,255,255,.16)}
+.systog:disabled,.sysexp:disabled{opacity:.42;cursor:default}
+.sysrow.busy .systog .rc::after{content:'building…';color:var(--accent)}
+.sysexp{width:28px;height:28px;border:0;background:none;color:var(--faint);border-radius:7px}
+.sysexp:hover:not(:disabled){background:var(--panel2);color:var(--fg)}
+.sysrow.open .sysexp{transform:rotate(180deg)}
+.sysitems{grid-column:1/-1;display:none;padding:0 0 4px 20px}
+.sysrow.open .sysitems{display:block}
+.sysit{display:flex;align-items:center;gap:4px}
+.sysit .nm{flex:1;border:0;background:none;text-align:left;color:#cfcbc2;font-size:12.5px;padding:4px 7px;border-radius:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sysit .nm:hover{background:var(--panel2);color:var(--fg)}
+.sysit.sel .nm{background:rgba(232,176,74,.16);color:#fff2d6}
+.sysit.off .nm{color:var(--faint);text-decoration:line-through}
+.sysit .e{border:0;background:none;color:var(--muted);width:24px;height:24px;border-radius:6px;font-size:13px}
+.sysit .e:hover{background:var(--panel2);color:var(--fg)}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
 button{font:inherit;color:inherit;cursor:pointer}
@@ -146,6 +169,7 @@ const body = `
       <div><h1>Skeleton Atlas</h1><p>Adult human, 206 bones, 3D</p></div>
     </header>
     <div class="search"><input id="q" type="search" placeholder="Search: femur, wrist, rib 7…" aria-label="Search bones" autocomplete="off"><span id="qcount">206 bones</span></div>
+    <div id="sys"></div>
     <div id="tree"></div>
   </aside>
   <main class="stage">
@@ -155,7 +179,7 @@ const body = `
     <button id="openleft" class="fab">☰ Bones</button>
     <div class="toolbar" role="toolbar" aria-label="View controls">
       <div class="grp views"><button data-view="front" class="on">Front</button><button data-view="left">Side</button><button data-view="back">Back</button><button data-view="top">Top</button></div>
-      <div class="grp"><button id="t-labels" title="Show bone names (L)">Names</button><button id="t-dim" title="Fade other bones when one is selected">Focus</button><button id="t-cart" title="Costal cartilage (not bone)">Cartilage</button><button id="t-teeth" title="Teeth (not counted as bones)">Teeth</button><button id="t-rot">Spin</button></div>
+      <div class="grp"><button id="t-labels" title="Show bone names (L)">Names</button><button id="t-dim" title="Fade other bones when one is selected">Focus</button><button id="t-cart" title="Costal cartilage (not bone)">Cartilage</button><button id="t-teeth" title="Teeth (not counted as bones)">Teeth</button><button id="t-rot">Spin</button><button id="t-bones" title="Cycle the skeleton: solid, ghost, hidden">Bones: Solid</button></div>
       <div class="grp explode"><label for="explode">Explode</label><input id="explode" type="range" min="0" max="100" value="0"><output id="exv">0%</output></div>
       <div class="grp"><button id="reset">Reset</button></div>
     </div>
