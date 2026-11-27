@@ -747,6 +747,12 @@ function fillSysItems(id) {
     $('.e', d).addEventListener('click', () => { o.on = !o.on; if (S.selOrgan === o && !o.on) selectOrgan(null); syncSysUI(); applyStates(); });
     d.dataset.key = o.id; box.appendChild(d); o.row = d;
   }
+  if (id === 'reproductive') {
+    const seg = el('div', 'seg'); seg.innerHTML = '<button data-v="male" aria-pressed="true">Male</button><button data-v="female" aria-pressed="false">Female</button><button data-v="both" aria-pressed="false">Both</button>';
+    const apply = (v) => { for (const it of st.items) it.organ.on = v === 'both' || it.organ.variant === v; $$('button', seg).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v))); if (S.selOrgan && !S.selOrgan.on) selectOrgan(null); syncSysUI(); applyStates(); };
+    $$('button', seg).forEach((b) => b.addEventListener('click', () => apply(b.dataset.v)));
+    box.insertBefore(seg, box.firstChild); apply('male');
+  }
   if (id === 'skin') {
     const w = el('div', 'skinop'); w.innerHTML = '<label>Opacity</label><input type="range" min="8" max="100" value="50" aria-label="Skin opacity"><output>50%</output>';
     $('input', w).addEventListener('input', (e) => {

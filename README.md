@@ -7,7 +7,7 @@ An interactive 3D adult human skeleton in the browser: all 206 bones, each named
 - Focus dimming, an Explode slider, name labels, and toggles for cartilage and teeth
 - Cartilage everywhere it belongs: costal cartilage, intervertebral discs, pubic symphysis, knee menisci, nose and jaw-joint cartilage, plus thin articular cartilage on every joint surface (it follows its bones when you explode the skeleton)
 
-- **Body systems** (left panel): organs, respiratory, cardiovascular, urinary, nervous and muscular (27 muscle groups attached to the actual bone positions). Each is built the first time you switch it on (well under a second), so the page stays fast. Click any organ to see what it does; cycle the skeleton between Solid, Ghost and Off with the Bones button. Skin (with an opacity slider) is included too; reproductive is planned.
+- **Body systems** (left panel): organs, respiratory, cardiovascular, urinary, nervous and muscular (27 muscle groups attached to the actual bone positions). Each is built the first time you switch it on (well under a second), so the page stays fast. Click any organ to see what it does; cycle the skeleton between Solid, Ghost and Off with the Bones button. Skin (with an opacity slider) and the reproductive system (switch between male, female or both) are included too.
 
 - **Menus collapse** on every screen size: hide the bone list (`[`), the details panel (`]`) and the control bar (`h`); your choice is remembered. On phones the list is a drawer and the details a bottom sheet.
 

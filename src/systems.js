@@ -17,7 +17,7 @@ export const SYSTEMS = [
   { id: 'nervous', name: 'Nervous', hex: '#e9d98b', blurb: 'Brain, spinal cord, nerves' },
   { id: 'muscular', name: 'Muscular', hex: '#b5483e', blurb: 'Major skeletal muscles' },
   { id: 'skin', name: 'Skin', hex: '#d8b49a', blurb: 'Whole-body skin with an opacity slider' },
-  { id: 'reproductive', name: 'Reproductive', hex: '#c58aa0', blurb: 'Next release', soon: true },
+  { id: 'reproductive', name: 'Reproductive', hex: '#c58aa0', blurb: 'Male and female structures' },
 ];
 
 const { vertPose } = POSES;
@@ -460,8 +460,43 @@ function buildNervous(ctx) {
 }
 
 // ====================================================================================
+
+// ====================================================================================
+// REPRODUCTIVE (male and female structures, shown with a switch)
+// ====================================================================================
+function buildReproductive() {
+  const out = [];
+  const add = (key, mesh, variant) => out.push({ key, mesh, variant });
+  // ---- female ----
+  const uterus = (() => {
+    const d = V3.nrm([0, 0.8, 0.45]);
+    let f = union(0.8, ell([0, 95.0, 0.9], [2.5, 3.5, 1.9], { y: d }), rc([0, 92.4, 0.1], [0, 90.2, -0.7], 1.5, 1.15));
+    f = sub(f, ell([0, 95.2, 1.1], [0.55, 1.6, 0.35], { y: d }), 0.3);
+    return paint(sdfMesh(f, [-4.5, 87, -4], [4.5, 100, 5], 0.12), 0xc8707b, 0.06);
+  })();
+  add('uterus', uterus, 'female');
+  const tube = (s) => tubeM([[s * 2.0, 96.5, 0.7], [s * 3.4, 98.0, 0.5], [s * 5.4, 97.8, -0.2], [s * 6.8, 96.2, -0.9], [s * 7.2, 94.6, -1.6]], [0.42, 0.24], { K: 8 });
+  const fimb = (s) => paint(sdfMesh(union(0.4, ell([s * 7.3, 94.0, -1.9], [0.9, 1.1, 0.5]), ell([s * 7.6, 93.0, -2.1], [0.6, 0.7, 0.4])), [s > 0 ? 5 : -10, 90, -5], [s > 0 ? 10 : -5, 98, 2], 0.08), 0xe3a4a0, 0.04);
+  add('fallopian-tubes', merge([paint(merge([tube(1), tube(-1)]), 0xdc9a98, 0.05), fimb(1), fimb(-1)]), 'female');
+  const ovary = (s) => paint(sdfMesh(ell([s * 6.4, 93.4, -2.4], [1.9, 1.15, 0.95], { y: V3.nrm([s * 0.2, 1, 0.3]) }), [s > 0 ? 3 : -9, 90, -6], [s > 0 ? 9 : -3, 97, 1], 0.08, { amp: 0.06, freq: 3 }), 0xe9d3bb, 0.06);
+  add('ovaries', merge([ovary(1), ovary(-1)]), 'female');
+  add('vagina', paint(tubeM([[0, 90.4, -0.8], [0, 87.6, 0.2], [0, 84.6, 2.6], [0, 82.6, 5.4]], [1.25, 1.0], { K: 12, flat: 0.55 }), 0xc9858a, 0.05), 'female');
+  // ---- male ----
+  const testis = (s) => paint(sdfMesh(ell([s * 2.0, 76.6, 6.4], [1.35, 2.25, 1.55], { y: V3.nrm([s * 0.05, 1, -0.25]) }), [s > 0 ? 0 : -5, 72, 2], [s > 0 ? 5 : 0, 82, 10], 0.07), 0xe8d6bc, 0.04);
+  add('testes', merge([testis(1), testis(-1)]), 'male');
+  const epi = (s) => merge([paint(tubeM([[s * 2.2, 78.4, 5.0], [s * 2.5, 76.0, 4.6], [s * 2.2, 74.6, 5.8]], [0.5, 0.4], { K: 8 }), 0xd8b48c, 0.05)]);
+  const vas = (s) => paint(tubeM([[s * 2.2, 74.8, 5.8], [s * 2.2, 78, 4.4], [s * 2.5, 82.0, 8.4], [s * 3.6, 88.0, 8.8], [s * 5.4, 91.6, 6.6], [s * 5.2, 92.0, 2.0], [s * 3.2, 90.0, -0.8], [s * 1.5, 87.4, 0.0]], 0.22, { K: 6 }), 0xe9dcc2, 0.04);
+  add('epididymis-vas', merge([epi(1), epi(-1), vas(1), vas(-1)]), 'male');
+  add('seminal-vesicles', paint(sdfMesh(union(0.3, ell([1.9, 89.2, -0.4], [1.3, 0.55, 2.0], [0, 22, 0]), ell([-1.9, 89.2, -0.4], [1.3, 0.55, 2.0], [0, -22, 0])), [-4.5, 86, -4], [4.5, 92, 3], 0.08), 0xdab698, 0.05), 'male');
+  add('prostate', paint(sdfMesh(ell([0, 85.2, 3.2], [2.0, 1.45, 1.65]), [-3, 82, 0], [3, 89, 7], 0.08, { amp: 0.04, freq: 3 }), 0xcca58c, 0.05), 'male');
+  const shaft = tubeM([[0, 87.0, 9.6], [0, 83.4, 11.0], [0, 79.5, 12.2], [0, 76.2, 12.9]], [1.5, 1.35], { K: 12 });
+  const glans = sdfMesh(union(0.5, ell([0, 74.9, 12.9], [1.55, 1.3, 1.6]), ell([0, 73.8, 12.9], [1.0, 0.7, 1.0])), [-3, 71, 9], [3, 78, 17], 0.07);
+  add('penis', merge([paint(shaft, 0xe3ad9b, 0.04), paint(glans, 0xd0827f, 0.03)]), 'male');
+  return out;
+}
+
 const HELP = { V3, merge, paint, mirrorMesh, loft, resample, sdfMesh, centerline, spAt, POSES, rgb };
-const BUILDERS = { skin: (ctx) => [{ key: 'skin', mesh: buildSkin(ctx, HELP) }], muscular: (ctx) => buildMuscular(ctx, HELP), organs: buildOrgans, respiratory: buildRespiratory, cardio: buildCardio, urinary: buildUrinary, nervous: buildNervous };
+const BUILDERS = { reproductive: buildReproductive, skin: (ctx) => [{ key: 'skin', mesh: buildSkin(ctx, HELP) }], muscular: (ctx) => buildMuscular(ctx, HELP), organs: buildOrgans, respiratory: buildRespiratory, cardio: buildCardio, urinary: buildUrinary, nervous: buildNervous };
 const PRESET_COLOR = { heart: 0xb3544c };
 
 // ctx: { pos(boneId) -> Float32Array of world positions }
@@ -471,6 +506,6 @@ export function buildSystem(id, ctx) {
     const info = OI[r.key] || { name: r.key };
     const mesh = r.mesh;
     if (!mesh.colors) paint(mesh, r.color || PRESET_COLOR[r.key] || 0xd8b0a8, 0.06);
-    return { id: 'sys-' + r.key, key: r.key, system: id, mesh, info };
+    return { id: 'sys-' + r.key, key: r.key, system: id, mesh, info, variant: r.variant };
   });
 }

@@ -29,6 +29,9 @@ const css = `
 .sysit.sel .nm{background:rgba(232,176,74,.16);color:#fff2d6}
 .sysit.off .nm{color:var(--faint);text-decoration:line-through}
 .sysit .e{border:0;background:none;color:var(--muted);width:24px;height:24px;border-radius:6px;font-size:13px}
+.seg{display:flex;gap:2px;padding:2px;margin:2px 0 6px;background:var(--bg2);border:1px solid var(--line);border-radius:9px}
+.seg button{flex:1;border:0;background:none;color:var(--muted);height:26px;border-radius:7px;font-size:12px;font-weight:600}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
 .skinop{display:flex;align-items:center;gap:8px;padding:4px 6px 2px;color:var(--muted);font-size:12px}
 .skinop input{flex:1;accent-color:var(--accent);min-width:0}
 .skinop output{font:11px var(--mono);width:34px;text-align:right}
