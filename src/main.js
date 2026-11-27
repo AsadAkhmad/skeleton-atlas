@@ -40,6 +40,13 @@ const ORG = {
   ghost: makeOrg({ transparent: true, opacity: 0.1, depthWrite: false, roughness: 0.9 }),
 };
 
+const ORGM = { // muscles are matte; organs keep the wet sheen
+  base: makeOrg({ roughness: 0.78, envMapIntensity: 0.55 }),
+  hover: makeOrg({ roughness: 0.78, emissive: 0x3f7da8, emissiveIntensity: 0.4 }),
+  select: makeOrg({ roughness: 0.78, emissive: 0xe0861a, emissiveIntensity: 0.5 }),
+  ghost: ORG.ghost,
+};
+
 // ---------------------------------------------------------------- state
 const bones = []; // {id, def, info, mesh, center, region, sub}
 const byId = new Map();
@@ -199,7 +206,7 @@ function applyOrgans() {
     const sys = sysBuilt.get(o.system);
     o.mesh.visible = !!(sys && sys.on && o.on && S.explode < 0.02) && !(S.isolate && S.selOrgan && S.selOrgan !== o);
     const st = organState(o);
-    if (o.state !== st) { o.state = st; o.mesh.material = ORG[st]; o.mesh.castShadow = st !== 'ghost'; }
+    if (o.state !== st) { o.state = st; o.mesh.material = (o.system === 'muscular' ? ORGM : ORG)[st]; o.mesh.castShadow = st !== 'ghost'; }
   }
 }
 function applyStates() {
@@ -646,6 +653,7 @@ function renderOrganDetails(root) {
     <section class="size"><h3>Size <span class="muted">typical adult</span></h3>
       <dl>${(i.size || []).map((r) => `<dt>${r.k}</dt><dd>${r.v}</dd>`).join('')}</dl></section>
     <section><h3>Function</h3><p>${i.fn || ''}</p></section>
+    ${i.att ? `<section><h3>Attachments</h3><p>${i.att}</p></section>` : ''}
     ${i.fact ? `<section class="fact"><h3>Good to know</h3><p>${i.fact}</p></section>` : ''}
     <section class="loc"><div class="btns"><button id="ofocus">Zoom to it</button><button id="oiso" aria-pressed="${S.isolate}">Isolate</button><button id="ohide">Hide it</button></div>
       <p class="muted" style="margin-top:10px">Soft-tissue shapes are stylised models placed against the skeleton, not scans. Sizes are typical adult values.</p></section>`;
@@ -661,7 +669,7 @@ function setBoneMode(m) {
 }
 function addOrganMeshes(items) {
   for (const it of items) {
-    const mesh = new THREE.Mesh(geometryFrom(it.mesh), ORG.base);
+    const mesh = new THREE.Mesh(geometryFrom(it.mesh), it.system === 'muscular' ? ORGM.base : ORG.base);
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.visible = false;
     world.add(mesh);
     const o = { ...it, mesh, on: true, isOrgan: true, state: 'base', region: 'Systems', sub: it.system };
