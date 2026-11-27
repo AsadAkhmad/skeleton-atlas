@@ -7,6 +7,7 @@ import { POSES } from './layout.js';
 import { bodyDims } from './shapes_axial.js';
 import { INFO as OI } from './organdata.js';
 import { buildMuscular } from './muscles.js';
+import { buildSkin } from './skin.js';
 
 export const SYSTEMS = [
   { id: 'organs', name: 'Organs', hex: '#e0958a', blurb: 'Digestive tract, glands, eyes' },
@@ -15,7 +16,7 @@ export const SYSTEMS = [
   { id: 'urinary', name: 'Urinary', hex: '#d9a76f', blurb: 'Kidneys, ureters, bladder' },
   { id: 'nervous', name: 'Nervous', hex: '#e9d98b', blurb: 'Brain, spinal cord, nerves' },
   { id: 'muscular', name: 'Muscular', hex: '#b5483e', blurb: 'Major skeletal muscles' },
-  { id: 'skin', name: 'Skin', hex: '#d8b49a', blurb: 'Next release', soon: true },
+  { id: 'skin', name: 'Skin', hex: '#d8b49a', blurb: 'Whole-body skin with an opacity slider' },
   { id: 'reproductive', name: 'Reproductive', hex: '#c58aa0', blurb: 'Next release', soon: true },
 ];
 
@@ -459,8 +460,8 @@ function buildNervous(ctx) {
 }
 
 // ====================================================================================
-const HELP = { V3, merge, paint, mirrorMesh, loft, resample, sdfMesh, centerline, spAt, POSES };
-const BUILDERS = { muscular: (ctx) => buildMuscular(ctx, HELP), organs: buildOrgans, respiratory: buildRespiratory, cardio: buildCardio, urinary: buildUrinary, nervous: buildNervous };
+const HELP = { V3, merge, paint, mirrorMesh, loft, resample, sdfMesh, centerline, spAt, POSES, rgb };
+const BUILDERS = { skin: (ctx) => [{ key: 'skin', mesh: buildSkin(ctx, HELP) }], muscular: (ctx) => buildMuscular(ctx, HELP), organs: buildOrgans, respiratory: buildRespiratory, cardio: buildCardio, urinary: buildUrinary, nervous: buildNervous };
 const PRESET_COLOR = { heart: 0xb3544c };
 
 // ctx: { pos(boneId) -> Float32Array of world positions }

@@ -29,12 +29,15 @@ const css = `
 .sysit.sel .nm{background:rgba(232,176,74,.16);color:#fff2d6}
 .sysit.off .nm{color:var(--faint);text-decoration:line-through}
 .sysit .e{border:0;background:none;color:var(--muted);width:24px;height:24px;border-radius:6px;font-size:13px}
+.skinop{display:flex;align-items:center;gap:8px;padding:4px 6px 2px;color:var(--muted);font-size:12px}
+.skinop input{flex:1;accent-color:var(--accent);min-width:0}
+.skinop output{font:11px var(--mono);width:34px;text-align:right}
 .sysit .e:hover{background:var(--panel2);color:var(--fg)}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
 button{font:inherit;color:inherit;cursor:pointer}
 button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-#app{display:grid;grid-template-columns:292px minmax(0,1fr) 352px;height:100%;background:var(--bg)}
+#app{--lw:292px;--rw:352px;display:grid;grid-template-columns:var(--lw) minmax(0,1fr) var(--rw);height:100%;background:var(--bg)}
 aside{background:var(--panel);min-height:0;display:flex;flex-direction:column;position:relative;z-index:5}
 #left{border-right:1px solid var(--line)}
 #right{border-left:1px solid var(--line)}
@@ -89,6 +92,15 @@ aside{background:var(--panel);min-height:0;display:flex;flex-direction:column;po
 .explode output{font:11px var(--mono);width:32px;color:var(--faint)}
 .hint{position:absolute;left:16px;top:14px;font-size:12px;color:var(--faint);pointer-events:none;max-width:260px;z-index:3}
 .hint b{color:var(--muted);font-weight:500}
+.hide{position:absolute;right:10px;top:8px;z-index:3;border:0;background:var(--panel2);color:var(--muted);width:34px;height:34px;border-radius:50%;font-size:18px;line-height:1;display:grid;place-items:center}
+.hide:hover{color:var(--fg);background:var(--line2)}
+.brand .hide{position:static;margin-left:auto;flex:none}
+.edgetab{display:none;position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:7;border:1px solid var(--line2);border-right:0;background:rgba(18,21,26,.92);color:var(--fg);border-radius:10px 0 0 10px;padding:14px 7px;font:600 12px var(--sans);letter-spacing:.04em;writing-mode:vertical-rl}
+.stage #loading{z-index:40}
+#right .hd{padding-right:42px}
+.edgetab:hover{background:var(--accent);color:var(--accent-ink)}
+.toolbar.min>.grp:not(.keep){display:none}
+.toolbar.min{padding:3px}
 .fab{display:none;position:absolute;left:12px;top:12px;z-index:7;border:1px solid var(--line2);background:rgba(18,21,26,.9);border-radius:10px;height:36px;padding:0 14px;font-weight:600;font-size:13px}
 #loading{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;display:grid;justify-items:center;gap:12px;padding:22px 30px;background:rgba(13,15,18,.78);border:1px solid var(--line2);border-radius:16px;backdrop-filter:blur(6px);transition:opacity .6s;text-align:center}
 #loading.done{opacity:0;pointer-events:none}
@@ -144,7 +156,11 @@ dt{color:var(--muted)}dd{font:500 12.5px var(--mono);text-align:right;color:#e4e
 .locrow p{font-size:12.5px}
 .btns{display:grid;gap:6px;margin-top:10px}
 /* responsive */
-@media (max-width:1180px){#app{grid-template-columns:260px minmax(0,1fr) 320px}.grp .lbl{display:none}}
+@media (max-width:1180px){#app{--lw:260px;--rw:320px}.grp .lbl{display:none}}
+@media (min-width:901px){
+ #app.noleft{--lw:0px}#app.noleft #left{visibility:hidden;overflow:hidden;min-width:0;border:0}#app.noleft .fab{display:block}
+ #app.noright{--rw:0px}#app.noright #right{visibility:hidden;overflow:hidden;min-width:0;border:0}#app.noright .edgetab{display:block}
+}
 @media (max-width:900px){
  #app{grid-template-columns:minmax(0,1fr)}
  #left{position:absolute;left:0;top:0;bottom:0;width:min(86vw,330px);transform:translateX(-102%);transition:transform .28s;z-index:30;box-shadow:12px 0 40px rgba(0,0,0,.5)}
@@ -152,6 +168,8 @@ dt{color:var(--muted)}dd{font:500 12.5px var(--mono);text-align:right;color:#e4e
  #right{position:absolute;left:0;right:0;bottom:0;height:54%;transform:translateY(102%);transition:transform .3s;z-index:25;border-left:0;border-top:1px solid var(--line2);border-radius:16px 16px 0 0;box-shadow:0 -14px 40px rgba(0,0,0,.5)}
  #right.open{transform:none}
  .x{display:block}.fab{display:block}
+ #hideright{right:52px}
+ #showright.on{display:block}
  .toolbar{bottom:10px}
  .hint{display:none}
  body:has(#right.open) .toolbar{bottom:calc(54% + 8px)}
@@ -167,6 +185,7 @@ const body = `
     <header class="brand">
       <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-4 0-7 2.7-7 6.3 0 2.2 1.1 3.7 2.6 4.8V17a1 1 0 0 0 1 1H10v2.5M12 3c4 0 7 2.7 7 6.3 0 2.2-1.1 3.7-2.6 4.8V17a1 1 0 0 1-1 1H14v2.5M10 18v2.5M14 18v2.5"/><circle cx="9.3" cy="10" r="1.5"/><circle cx="14.7" cy="10" r="1.5"/></svg></div>
       <div><h1>Skeleton Atlas</h1><p>Adult human, 206 bones, 3D</p></div>
+      <button id="hideleft" class="hide" aria-label="Hide the list" title="Hide the list ( [ )">‹</button>
     </header>
     <div class="search"><input id="q" type="search" placeholder="Search: femur, wrist, rib 7…" aria-label="Search bones" autocomplete="off"><span id="qcount">206 bones</span></div>
     <div id="sys"></div>
@@ -182,10 +201,12 @@ const body = `
       <div class="grp"><button id="t-labels" title="Show bone names (L)">Names</button><button id="t-dim" title="Fade other bones when one is selected">Focus</button><button id="t-cart" title="Costal cartilage (not bone)">Cartilage</button><button id="t-teeth" title="Teeth (not counted as bones)">Teeth</button><button id="t-rot">Spin</button><button id="t-bones" title="Cycle the skeleton: solid, ghost, hidden">Bones: Solid</button></div>
       <div class="grp explode"><label for="explode">Explode</label><input id="explode" type="range" min="0" max="100" value="0"><output id="exv">0%</output></div>
       <div class="grp"><button id="reset">Reset</button></div>
+      <div class="grp keep"><button id="t-min" aria-label="Hide or show the controls" title="Hide or show these controls ( h )">Hide ▾</button></div>
     </div>
+    <button id="showright" class="edgetab" aria-label="Show details" title="Show the details panel ( ] )">Details</button>
     <div id="loading"><h2>Assembling the skeleton</h2><div class="barwrap"><div id="bar"></div></div><p id="loadtxt">starting…</p></div>
   </main>
-  <aside id="right" aria-label="Bone details"><button id="closeright" class="x" aria-label="Close details">×</button><div id="detail"></div></aside>
+  <aside id="right" aria-label="Bone details"><button id="hideright" class="hide" aria-label="Hide details" title="Hide the details panel ( ] )">›</button><button id="closeright" class="x" aria-label="Close details">×</button><div id="detail"></div></aside>
 </div>`;
 
 const fonts = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,400&display=swap">`;

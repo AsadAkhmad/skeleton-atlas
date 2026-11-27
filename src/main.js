@@ -40,6 +40,14 @@ const ORG = {
   ghost: makeOrg({ transparent: true, opacity: 0.1, depthWrite: false, roughness: 0.9 }),
 };
 
+const makeSkin = (o) => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0, emissive: 0x7a5038, emissiveIntensity: 0.6, transparent: true, opacity: 0.5, depthWrite: false, ...o });
+const SKINM = {
+  base: makeSkin({}),
+  hover: makeSkin({ emissive: 0x3f7da8, emissiveIntensity: 0.3 }),
+  select: makeSkin({ opacity: 0.55, emissive: 0xe0861a, emissiveIntensity: 0.35 }),
+  ghost: makeSkin({ opacity: 0.04, roughness: 0.9 }),
+};
+const matsOf = (o) => (o.system === 'muscular' ? ORGM : o.key === 'skin' ? SKINM : ORG);
 const ORGM = { // muscles are matte; organs keep the wet sheen
   base: makeOrg({ roughness: 0.78, envMapIntensity: 0.55 }),
   hover: makeOrg({ roughness: 0.78, emissive: 0x3f7da8, emissiveIntensity: 0.4 }),
@@ -156,7 +164,7 @@ function pick(clientX, clientY) {
   const saved = [];
   for (const b of bones) { saved.push(b.mesh.material); b.mesh.material = b.idMat; b.mesh.castShadow = false; }
   const dsaved = deco.map((d) => d.mesh.visible); deco.forEach((d) => { d.mesh.visible = false; });
-  const osaved = organs.map((o) => o.mesh.material); organs.forEach((o) => { o.mesh.material = o.idMat; o.mesh.castShadow = false; });
+  const osaved = organs.map((o) => o.mesh.material); const ovis = organs.map((o) => o.mesh.visible); organs.forEach((o) => { o.mesh.material = o.idMat; o.mesh.castShadow = false; if (o.key === 'skin') o.mesh.visible = false; });
   const oldBG = scene.background; const oldEnv = scene.environment; scene.environment = null;
   const pr = renderer.getPixelRatio();
   camera.setViewOffset(r.width, r.height, x, y, 1, 1);
@@ -174,7 +182,7 @@ function pick(clientX, clientY) {
   scene.environment = oldEnv;
   bones.forEach((b, i) => { b.mesh.material = saved[i]; b.mesh.castShadow = b.mesh.userData.cast !== false && b.state !== 'ghost'; });
   deco.forEach((d, i) => { d.mesh.visible = dsaved[i]; });
-  organs.forEach((o, i) => { o.mesh.material = osaved[i]; o.mesh.castShadow = o.state !== 'ghost'; });
+  organs.forEach((o, i) => { o.mesh.material = osaved[i]; o.mesh.visible = ovis[i]; o.mesh.castShadow = o.state !== 'ghost' && o.key !== 'skin'; });
   const id = pickBuf[0] + (pickBuf[1] << 8);
   if (id > bones.length && id <= bones.length + organs.length) return organs[id - bones.length - 1];
   return id > 0 && id <= bones.length ? bones[id - 1] : null;
@@ -206,7 +214,7 @@ function applyOrgans() {
     const sys = sysBuilt.get(o.system);
     o.mesh.visible = !!(sys && sys.on && o.on && S.explode < 0.02) && !(S.isolate && S.selOrgan && S.selOrgan !== o);
     const st = organState(o);
-    if (o.state !== st) { o.state = st; o.mesh.material = (o.system === 'muscular' ? ORGM : ORG)[st]; o.mesh.castShadow = st !== 'ghost'; }
+    if (o.state !== st) { o.state = st; o.mesh.material = matsOf(o)[st]; o.mesh.castShadow = st !== 'ghost' && o.key !== 'skin'; }
   }
 }
 function applyStates() {
@@ -319,6 +327,7 @@ function select(b, opts = {}) {
   scrollListTo(b);
   if (!b) $('#right').classList.remove('open');
   else $('#right').classList.add('open');
+  syncPanels();
 }
 function hover(x) {
   const o = x && x.isOrgan ? x : null, b = x && !x.isOrgan ? x : null;
@@ -620,7 +629,7 @@ function bindUI() {
   });
   $('#reset').addEventListener('click', () => { select(null); S.isolate = false; S.boneMode = 'solid'; setBoneMode('solid'); for (const st of sysBuilt.values()) st.on = false; syncSysUI(); S.hiddenRegions.clear(); $$('.reg').forEach((s) => { s.classList.remove('off'); $('.eye', s).setAttribute('aria-pressed', 'true'); }); $('#explode').value = 0; $('#exv').textContent = '0%'; setExplode(0); setView('front'); });
   $('#q').addEventListener('input', (e) => runSearch(e.target.value));
-  $('#openleft').addEventListener('click', () => $('#left').classList.toggle('open'));
+  bindPanels();
   $('#closeright').addEventListener('click', () => select(null));
   addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') { if (e.key === 'Escape') e.target.blur(); return; }
@@ -628,9 +637,39 @@ function bindUI() {
     else if (e.key === 'Escape') select(null);
     else if (e.key === 'f' && S.selected) focusBone(S.selected);
     else if (e.key === 'l') $('#t-labels').click();
+    else if (e.key === '[') $('#hideleft').click();
+    else if (e.key === ']') (isMobile() ? ($('#right').classList.contains('open') ? $('#hideright') : $('#showright')) : ($('#app').classList.contains('noright') ? $('#showright') : $('#hideright'))).click();
+    else if (e.key === 'h') $('#t-min').click();
     else if (e.key === '/') { $('#q').focus(); e.preventDefault(); }
   });
   addEventListener('resize', resize);
+}
+
+// ---------------------------------------------------------------- collapsible panels
+const isMobile = () => innerWidth <= 900;
+const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem('atlas-' + k); localStorage.setItem('atlas-' + k, v); } catch (e) {} return null; };
+function syncPanels() {
+  const app = $('#app'), right = $('#right'), tab = $('#showright'), has = !!(S.selected || S.selOrgan);
+  if (isMobile()) tab.classList.toggle('on', has && !right.classList.contains('open'));
+  else tab.classList.remove('on');
+  $('#openleft').textContent = isMobile() ? '☰ Bones' : '☰ List';
+  tab.textContent = has && (S.selected || S.selOrgan) ? 'Details' : 'Details';
+}
+function setLeftOff(off) { $('#app').classList.toggle('noleft', off); pref('noleft', off ? '1' : '0'); resize(); }
+function setRightOff(off) { $('#app').classList.toggle('noright', off); pref('noright', off ? '1' : '0'); syncPanels(); resize(); }
+function setToolMin(min) { const t = $('.toolbar'); t.classList.toggle('min', min); $('#t-min').textContent = min ? 'Controls ▴' : 'Hide ▾'; pref('toolmin', min ? '1' : '0'); invalidate(); }
+function bindPanels() {
+  $('#openleft').addEventListener('click', () => { if (isMobile()) $('#left').classList.toggle('open'); else setLeftOff(false); });
+  $('#hideleft').addEventListener('click', () => { if (isMobile()) $('#left').classList.remove('open'); else setLeftOff(true); });
+  $('#hideright').addEventListener('click', () => { if (isMobile()) { $('#right').classList.remove('open'); syncPanels(); } else setRightOff(true); });
+  $('#showright').addEventListener('click', () => { if (isMobile()) { $('#right').classList.add('open'); syncPanels(); } else setRightOff(false); });
+  $('#t-min').addEventListener('click', () => setToolMin(!$('.toolbar').classList.contains('min')));
+  // tapping the 3D view closes an open drawer on phones and small tablets
+  canvas.addEventListener('pointerdown', () => { if (isMobile()) $('#left').classList.remove('open'); });
+  if (pref('noleft') === '1') $('#app').classList.add('noleft');
+  if (pref('noright') === '1') $('#app').classList.add('noright');
+  if (pref('toolmin') === '1') setToolMin(true);
+  addEventListener('resize', syncPanels); syncPanels(); resize();
 }
 
 // ---------------------------------------------------------------- body systems (built on first use)
@@ -640,6 +679,7 @@ function selectOrgan(o, opts = {}) {
   applyStates(); renderDetails();
   if (o && opts.focus !== false) focusBone(o);
   $('#right').classList.toggle('open', !!o);
+  syncPanels();
   syncSysUI();
 }
 function renderOrganDetails(root) {
@@ -669,8 +709,8 @@ function setBoneMode(m) {
 }
 function addOrganMeshes(items) {
   for (const it of items) {
-    const mesh = new THREE.Mesh(geometryFrom(it.mesh), it.system === 'muscular' ? ORGM.base : ORG.base);
-    mesh.castShadow = true; mesh.receiveShadow = true; mesh.visible = false;
+    const mesh = new THREE.Mesh(geometryFrom(it.mesh), matsOf(it).base);
+    mesh.castShadow = it.key !== 'skin'; mesh.receiveShadow = it.key !== 'skin'; mesh.visible = false; if (it.key === 'skin') mesh.renderOrder = 5;
     world.add(mesh);
     const o = { ...it, mesh, on: true, isOrgan: true, state: 'base', region: 'Systems', sub: it.system };
     organs.push(o);
@@ -686,7 +726,7 @@ async function toggleSystem(id) {
   if (!st) {
     row.classList.add('busy'); await paintFrame();
     const t0 = performance.now();
-    const items = buildSystem(id, { pos: (bid) => byId.get(bid).mesh.geometry.attributes.position.array });
+    const items = buildSystem(id, { pos: (bid) => byId.get(bid).mesh.geometry.attributes.position.array, ids: () => bones.map((b) => b.id) });
     addOrganMeshes(items);
     st = { items, on: true }; sysBuilt.set(id, st);
     console.log(`built system ${id}: ${items.length} parts, ${Math.round(performance.now() - t0)} ms`);
@@ -706,6 +746,15 @@ function fillSysItems(id) {
     $('.nm', d).addEventListener('click', () => { o.on = true; if (!st.on) { st.on = true; } selectOrgan(o); });
     $('.e', d).addEventListener('click', () => { o.on = !o.on; if (S.selOrgan === o && !o.on) selectOrgan(null); syncSysUI(); applyStates(); });
     d.dataset.key = o.id; box.appendChild(d); o.row = d;
+  }
+  if (id === 'skin') {
+    const w = el('div', 'skinop'); w.innerHTML = '<label>Opacity</label><input type="range" min="8" max="100" value="50" aria-label="Skin opacity"><output>50%</output>';
+    $('input', w).addEventListener('input', (e) => {
+      const v = +e.target.value / 100; $('output', w).textContent = e.target.value + '%';
+      for (const k of ['base', 'hover']) { SKINM[k].opacity = v; SKINM[k].transparent = v < 0.98; SKINM[k].depthWrite = v >= 0.98; SKINM[k].needsUpdate = true; }
+      SKINM.select.opacity = Math.max(v, 0.5); invalidate();
+    });
+    box.appendChild(w);
   }
 }
 function syncSysUI() {
