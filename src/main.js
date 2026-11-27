@@ -20,6 +20,7 @@ const { renderer, scene, camera, controls } = stage;
 const small = innerWidth < 760 || (navigator.hardwareConcurrency || 8) <= 4;
 RES.scale = small ? 1.85 : 1.55;
 controls.minDistance = 0.8;
+renderer.localClippingEnabled = true;                 // for the reproductive “section view”
 
 const makeMat = (o) => patchBone(new THREE.MeshStandardMaterial({ roughness: 0.62, metalness: 0, vertexColors: true, ...o }));
 const MATS = {
@@ -47,7 +48,9 @@ const SKINM = {
   select: makeSkin({ opacity: 0.55, emissive: 0xe0861a, emissiveIntensity: 0.35 }),
   ghost: makeSkin({ opacity: 0.04, roughness: 0.9 }),
 };
-const matsOf = (o) => (o.system === 'muscular' ? ORGM : o.key === 'skin' ? SKINM : ORG);
+const matsOf = (o) => o.mats || (o.system === 'muscular' ? ORGM : o.key === 'skin' ? SKINM : ORG);
+const SEX_SYS = new Set(['skin', 'muscular', 'reproductive']);      // rebuilt when the body switches sex
+const FEMALE_SCALE = { 'lung-L': 0.93, 'lung-R': 0.93, liver: 0.93, 'kidney-L': 0.94, 'kidney-R': 0.94, brain: 0.94, cerebellum: 0.94, stomach: 0.96, spleen: 0.95, pancreas: 0.95 };
 const ORGM = { // muscles are matte; organs keep the wet sheen
   base: makeOrg({ roughness: 0.78, envMapIntensity: 0.55 }),
   hover: makeOrg({ roughness: 0.78, emissive: 0x3f7da8, emissiveIntensity: 0.4 }),
@@ -59,7 +62,7 @@ const ORGM = { // muscles are matte; organs keep the wet sheen
 const bones = []; // {id, def, info, mesh, center, region, sub}
 const byId = new Map();
 const deco = []; // {mesh, kind, owners: [bone]} cartilage and teeth that ride along with their bones
-const S = { selected: null, hovered: null, dim: true, labels: innerWidth > 760, cartilage: true, teeth: true, autorotate: false, explode: 0, hiddenRegions: new Set(), isolate: false, boneMode: 'solid', selOrgan: null, hoverOrgan: null };
+const S = { selected: null, hovered: null, dim: true, labels: innerWidth > 760, cartilage: true, teeth: true, autorotate: false, explode: 0, hiddenRegions: new Set(), isolate: false, boneMode: 'solid', selOrgan: null, hoverOrgan: null, sex: 'male', section: false };
 const organs = []; // soft-tissue items from the body systems: {id, key, system, info, mesh, on, isOrgan}
 const sysBuilt = new Map(); // system id -> { items, on }
 let dirty = true, shadowDirty = true;
@@ -707,18 +710,70 @@ function setBoneMode(m) {
   const b = $('#t-bones'); if (b) { b.textContent = 'Bones: ' + { solid: 'Solid', ghost: 'Ghost', hidden: 'Off' }[m]; b.setAttribute('aria-pressed', String(m !== 'solid')); }
   applyStates(); invalidate();
 }
+function reindexOrgans() {
+  organs.forEach((o, i) => { const id = bones.length + i + 1; o.idMat.color.setRGB((id & 255) / 255, ((id >> 8) & 255) / 255, 0, THREE.LinearSRGBColorSpace); });
+}
+function applyOrganScale() {
+  for (const o of organs) o.mesh.scale.setScalar(!SEX_SYS.has(o.system) && S.sex === 'female' ? (FEMALE_SCALE[o.key] || 1) : 1);
+}
+function applySection() {
+  for (const o of organs) {
+    if (!o.cutDef) continue;
+    if (S.section) o.plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(...o.cutDef.n).normalize(), new THREE.Vector3(...o.cutDef.p));
+    else o.plane.set(new THREE.Vector3(0, 0, 0), 1);
+  }
+  invalidate();
+}
 function addOrganMeshes(items) {
   for (const it of items) {
-    const mesh = new THREE.Mesh(geometryFrom(it.mesh), matsOf(it).base);
+    const g = geometryFrom(it.mesh); g.computeBoundingBox();
+    const c = g.boundingBox.getCenter(new THREE.Vector3()); g.translate(-c.x, -c.y, -c.z); g.computeBoundingBox(); g.computeBoundingSphere();
+    let mats = matsOf(it), plane = null;
+    if (it.cut) {
+      plane = new THREE.Plane(new THREE.Vector3(0, 0, 0), 1);
+      const mk = (m) => { const q = m.clone(); q.side = THREE.DoubleSide; q.clippingPlanes = [plane]; return q; };
+      mats = { base: mk(ORG.base), hover: mk(ORG.hover), select: mk(ORG.select), ghost: ORG.ghost };
+    }
+    const mesh = new THREE.Mesh(g, mats.base); mesh.position.copy(c);
     mesh.castShadow = it.key !== 'skin'; mesh.receiveShadow = it.key !== 'skin'; mesh.visible = false; if (it.key === 'skin') mesh.renderOrder = 5;
     world.add(mesh);
-    const o = { ...it, mesh, on: true, isOrgan: true, state: 'base', region: 'Systems', sub: it.system };
+    const o = { ...it, mesh, on: true, isOrgan: true, state: 'base', region: 'Systems', sub: it.system, mats: it.cut ? mats : undefined, plane, cutDef: it.cut };
     organs.push(o);
-    const id = bones.length + organs.length;
     o.idMat = new THREE.MeshBasicMaterial({ toneMapped: false });
-    o.idMat.color.setRGB((id & 255) / 255, ((id >> 8) & 255) / 255, 0, THREE.LinearSRGBColorSpace);
     it.organ = o;
   }
+  reindexOrgans(); applyOrganScale(); applySection();
+}
+function removeOrgans(items) {
+  for (const it of items) {
+    const o = it.organ; if (!o) continue;
+    world.remove(o.mesh); o.mesh.geometry.dispose();
+    if (o.mats) for (const k of ['base', 'hover', 'select']) o.mats[k].dispose();
+    const i = organs.indexOf(o); if (i >= 0) organs.splice(i, 1);
+    if (S.selOrgan === o) S.selOrgan = null; if (S.hoverOrgan === o) S.hoverOrgan = null;
+  }
+  reindexOrgans();
+}
+const sysCtx = () => ({ pos: (bid) => byId.get(bid).mesh.geometry.attributes.position.array, ids: () => bones.map((b) => b.id), sex: S.sex });
+function rebuildSystem(id) {
+  const st = sysBuilt.get(id); if (!st) return;
+  const t0 = performance.now();
+  removeOrgans(st.items);
+  const items = buildSystem(id, sysCtx());
+  addOrganMeshes(items); st.items = items;
+  console.log(`rebuilt ${id} as ${S.sex}: ${items.length} parts, ${Math.round(performance.now() - t0)} ms`);
+  fillSysItems(id);
+  syncSysUI(); applyStates(); renderDetails(); invalidateShadow();
+}
+async function setSex(sex) {
+  S.sex = sex; pref('sex', sex);
+  $$('#sexseg button').forEach((b) => { b.setAttribute('aria-pressed', String(b.dataset.sex === sex)); b.disabled = true; });
+  const todo = [...SEX_SYS].filter((id) => sysBuilt.has(id));
+  todo.forEach((id) => $(`.sysrow[data-sys="${id}"]`).classList.add('busy'));
+  await paintFrame();
+  for (const id of todo) { rebuildSystem(id); $(`.sysrow[data-sys="${id}"]`).classList.remove('busy'); await paintFrame(); }
+  applyOrganScale(); applyStates(); invalidate();
+  $$('#sexseg button').forEach((b) => { b.disabled = false; });
 }
 async function toggleSystem(id) {
   let st = sysBuilt.get(id);
@@ -726,7 +781,7 @@ async function toggleSystem(id) {
   if (!st) {
     row.classList.add('busy'); await paintFrame();
     const t0 = performance.now();
-    const items = buildSystem(id, { pos: (bid) => byId.get(bid).mesh.geometry.attributes.position.array, ids: () => bones.map((b) => b.id) });
+    const items = buildSystem(id, sysCtx());
     addOrganMeshes(items);
     st = { items, on: true }; sysBuilt.set(id, st);
     console.log(`built system ${id}: ${items.length} parts, ${Math.round(performance.now() - t0)} ms`);
@@ -748,10 +803,9 @@ function fillSysItems(id) {
     d.dataset.key = o.id; box.appendChild(d); o.row = d;
   }
   if (id === 'reproductive') {
-    const seg = el('div', 'seg'); seg.innerHTML = '<button data-v="male" aria-pressed="true">Male</button><button data-v="female" aria-pressed="false">Female</button><button data-v="both" aria-pressed="false">Both</button>';
-    const apply = (v) => { for (const it of st.items) it.organ.on = v === 'both' || it.organ.variant === v; $$('button', seg).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v))); if (S.selOrgan && !S.selOrgan.on) selectOrgan(null); syncSysUI(); applyStates(); };
-    $$('button', seg).forEach((b) => b.addEventListener('click', () => apply(b.dataset.v)));
-    box.insertBefore(seg, box.firstChild); apply('male');
+    const w = el('div', 'skinop'); w.innerHTML = '<label>Section view</label><button class="secbtn" aria-pressed="' + S.section + '">' + (S.section ? 'Cut open' : 'Closed') + '</button>';
+    $('button', w).addEventListener('click', (e) => { S.section = !S.section; e.target.setAttribute('aria-pressed', String(S.section)); e.target.textContent = S.section ? 'Cut open' : 'Closed'; applySection(); });
+    box.appendChild(w);
   }
   if (id === 'skin') {
     const w = el('div', 'skinop'); w.innerHTML = '<label>Opacity</label><input type="range" min="8" max="100" value="50" aria-label="Skin opacity"><output>50%</output>';
@@ -773,7 +827,9 @@ function syncSysUI() {
 }
 function buildSystemsUI() {
   const box = $('#sys'); if (!box) return;
-  box.innerHTML = '<div class="sysh"><span>Body systems</span><em>built when first opened</em></div>';
+  S.sex = pref('sex') === 'female' ? 'female' : 'male';
+  box.innerHTML = '<div class="sysh"><span>Body systems</span><em>built when first opened</em></div><div class="sexline"><label>Body</label><div class="seg" id="sexseg"><button data-sex="male" aria-pressed="true">Male</button><button data-sex="female" aria-pressed="false">Female</button></div></div>';
+  $$('#sexseg button').forEach((b) => { b.setAttribute('aria-pressed', String(b.dataset.sex === S.sex)); b.addEventListener('click', () => { if (S.sex !== b.dataset.sex) setSex(b.dataset.sex); }); });
   for (const sy of SYSTEMS) {
     const row = el('div', 'sysrow'); row.dataset.sys = sy.id;
     row.innerHTML = `<button class="systog" aria-pressed="false" ${sy.soon ? 'disabled' : ''} title="${sy.blurb}"><span class="sw" style="background:${sy.hex}"></span><span class="rn">${sy.name}</span><span class="rc">${sy.soon ? 'soon' : ''}</span></button><button class="sysexp" aria-label="List parts" ${sy.soon ? 'disabled' : ''}>▾</button><div class="sysitems"></div>`;

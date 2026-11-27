@@ -9,6 +9,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export function buildMuscular(ctx, H) {
   const { V3, merge, paint, mirrorMesh, loft, resample, sdfMesh, centerline, spAt, POSES } = H;
   const { STERN_M } = POSES;
+  const SXM = ctx.sex === 'female' ? 0.86 : 1;                         // female muscle bulk
   const P = (id) => ctx.pos(id);
   const A = (a, d) => V3.add(a, d);
   const MX = (p) => [-p[0], p[1], p[2]];
@@ -27,6 +28,8 @@ export function buildMuscular(ctx, H) {
   const calc = P('calcaneus-L');
   const heel = extreme(calc, (x, y, z) => -z);
   const SKT = [0, 163, -0.5];
+  const P_infAng = () => extreme(P('scapula-L'), (x, y, z) => -y);
+  const rib1 = () => centerline(P('rib-1-L'), 4, 0.0, 1.0).map((p) => p);
   const sk = (p) => A(p, SKT);
   const sternum = (x, y) => applyPt(STERN_M, [x, y, 0.75]);   // front of the sternum
   const tip = (y) => spAt(y).cz - 5.5;                         // spinous process tips
@@ -63,7 +66,8 @@ export function buildMuscular(ctx, H) {
   // spindle-shaped muscle between points, with tendons at both ends. R can be a number or [ra, rb] (ra across hint)
   function fus(pts, R, o = {}) {
     const te = o.te === undefined ? 0.14 : o.te, p = o.p || 0.8, hint = o.hint || [0, 0, 1];
-    const [ra, rb] = Array.isArray(R) ? R : [R * (o.flat || 0.75), R];
+    const [ra0, rb0] = Array.isArray(R) ? R : [R * (o.flat || 0.75), R];
+    const ra = ra0 * SXM, rb = rb0 * SXM;
     const len = resample(pts, 40).length, n = clamp(Math.round(len / 0.45), 10, 140);
     const path = resample(pts, n).pts;
     const i0 = Math.max(1, Math.round(te * 0.7 * n)), i1 = Math.min(n - 2, n - 1 - Math.round(te * 0.7 * n));
@@ -71,6 +75,10 @@ export function buildMuscular(ctx, H) {
     const prof = (t) => { const g = i0 + t * (i1 - i0), u = clamp((g / (n - 1) - te) / (1 - 2 * te), 0, 1); return 0.1 + 0.9 * Math.pow(Math.sin(Math.PI * u), p); };
     const belly = loft(sub, (t) => { const k = prof(t); return [Math.max(0.08, ra * k), Math.max(0.1, rb * k)]; }, { K: 12, capN: 2, hint });
     const out = [col(belly, o.color || MUSCLE, 0.07)];
+    if (!o.color) { // lengthwise fibre streaks: shade by angle around the belly
+      const ph = Math.random() * 6, nb = belly.positions.length / 3 - 2, bc = belly.colors;
+      for (let v = 0; v < nb; v++) { const k = 0.84 + 0.16 * (0.5 + 0.5 * Math.sin(((v % 12) / 12) * Math.PI * 2 * 4 + ph)); bc[3 * v] *= k; bc[3 * v + 1] *= k; bc[3 * v + 2] *= k; }
+    }
     const tend = (seg, w) => { if (seg.length >= 2) out.push(col(loft(seg.length < 3 ? [seg[0], V3.mix(seg[0], seg[1], 0.5), seg[1]] : seg, () => [w * 0.55, w], { K: 6, capN: 1, hint }), TENDON, 0.03)); };
     tend(path.slice(0, i0 + 2), o.tw || 0.22);
     tend(path.slice(i1 - 1), o.tw || 0.22);
@@ -79,6 +87,7 @@ export function buildMuscular(ctx, H) {
   // flat muscle: fibres from origin line to insertion line, hugging the torso, drawn as a thin slab
   function sheet(O, I, T, o = {}) {
     const off = o.off === undefined ? 0.2 : o.off, M = o.M || 10, rows = O.length;
+    T = T * SXM;
     const S = [], N = [];
     for (let i = 0; i < rows; i++) {
       const rowP = [], rowN = [];
@@ -275,6 +284,109 @@ export function buildMuscular(ctx, H) {
   add('fibularis-longus', () => {
     const foot = centroid('cuboid-L');
     return fus([A(fib[0], [0.4, 0, 0.2]), A(at(fib, 0.4), [1.2, 0, 0.4]), A(at(fib, 0.9), [1.4, 0, -0.2]), A(at(fib, 1), [1.2, -1.4, -0.8]), A(foot, [0.3, -1.0, 0.0])], [0.7, 1.0], { te: 0.3, hint: [1, 0, 0] });
+  });
+
+
+  // ============================ face ============================
+  const ringPath = (c, rx, ry, n = 26, zc = 0) => Array.from({ length: n + 1 }, (_, i) => { const a = (i / n) * Math.PI * 2; return [c[0] + rx * Math.cos(a), c[1] + ry * Math.sin(a), c[2] + zc * Math.cos(a)]; });
+  const ringM = (c, rx, ry, w, t, color) => col(loft(ringPath(c, rx, ry), () => [t * SXM, w * SXM], { K: 10, capN: 0, hint: [0, 0, 1] }), color || MUSCLE, 0.06);
+  add('orbicularis-oculi', () => merge([ringM(sk([3.4, 1.8, 9.6]), 2.55, 2.15, 0.5, 0.2), ringM(sk([3.4, 1.8, 9.5]), 1.7, 1.35, 0.35, 0.16, MUSCLE2)]));
+  add('orbicularis-oris', () => ringM(sk([0, -6.0, 10.2]), 2.9, 1.65, 0.65, 0.5), true);
+  add('zygomaticus', () => merge([
+    fus([sk([5.4, -0.8, 6.8]), sk([4.2, -3.4, 8.4]), sk([2.7, -5.7, 9.9])], [0.22, 0.38], { te: 0.18, tw: 0.1, hint: [0, 0, 1] }),
+    fus([sk([4.9, -0.2, 7.9]), sk([3.6, -3.0, 9.2]), sk([2.2, -5.1, 10.2])], [0.15, 0.26], { te: 0.2, tw: 0.08, hint: [0, 0, 1] })]));
+  add('frontalis', () => {
+    const shell = (r) => ell(sk([0, 3.0, 2.5]), [6.7 + r, 7.4 + r, 7.1 + r]);
+    const f = inter(sub(shell(0.5), shell(0.1)), (x, y, z) => Math.max(Math.abs(x) - 5.6, 166.7 - y, y - 170.5, 3.0 - z), 0.1);
+    return col(sdfMesh(f, sk([-7, 3.5, 2]), sk([7, 8.5, 11]), 0.1, null), MUSCLE2, 0.05);
+  }, true);
+  add('platysma', () => {
+    const O = [sk([4.2, -8.0, 4.0]), sk([3.2, -8.3, 6.6]), sk([2.0, -8.5, 8.6]), sk([0.7, -8.6, 9.3])];
+    const I = [[9.6, 141.4, -2.0], [7.2, 141.2, 1.2], [4.8, 141.0, 3.4], [2.4, 140.9, 4.2]];
+    return sheet(O, I, 0.35, { off: 0.25, M: 10, snap: 1 });
+  });
+  add('neck-muscles', () => {
+    const sc = [0, 1, 2].map((k) => fus([[1.8 + k * 0.2, 150.2 + k * 0.3, -3.6 + k * 0.3], [3.0 + k * 0.3, 145.8, -1.4 + k * 0.6], A(centroid('rib-1-L'), [-0.2 + k * 0.4, 0.4, 0.2])], [0.35, 0.5], { te: 0.12, hint: [1, 0, 0] }));
+    const spl = fus([[0.8, 144.2, tip(144) - 0.4], [2.6, 151.0, tip(151) + 0.6], sk([4.4, -2.6, -3.0])], [0.8, 1.7], { te: 0.12, hint: [0, 0, 1] });
+    return merge([...sc, spl]);
+  });
+
+  // ============================ deep and superficial trunk, shoulder girdle ============================
+  const scapMed = (u) => [9.2 + 0.3 * u, 143.2 - 12 * u, -11.2 - 0.5 * u];
+  add('serratus-anterior', () => {
+    const O = [], I = [];
+    for (let k = 0; k < 8; k++) { const y = 140.5 - k * 2.2, e = env(y); O.push([e.rx * 0.94, y - 0.5, e.zc + e.rz * 0.18 - k * 0.2]); I.push(scapMed(Math.min(1, k / 7.5))); }
+    return sheet(O, I, 0.5, { off: 0.2, M: 10 });
+  });
+  add('rhomboids', () => {
+    const O = [], I = [];
+    for (let k = 0; k < 7; k++) { const y = 147.5 - k * 2.0; O.push([0.7, y, tip(y) + 0.4]); I.push(scapMed(Math.min(1, k / 6.5))); }
+    return sheet(O, I, 0.55, { off: 0.2, M: 8 });
+  });
+  add('abdominal-wall-deep', () => {
+    const mk = (offs, T, k0) => { const O = [], I = []; for (let k = 0; k < 7; k++) { const y = 123 - k * 2.6, e = env(y); O.push([e.rx * 0.8, y, e.zc + e.rz * 0.5]); I.push([Math.min(5.0, 3.6 + k * 0.4), y - 5.5 - k * 0.4 * k0, env(y - 6).zc + env(y - 6).rz]); } return sheet(O, I, T, { off: offs, M: 10 }); };
+    return merge([mk(0.1, 0.7, 0.6), mk(-0.4, 0.55, 0.3)]);
+  });
+  add('quadratus-lumborum', () => fus([[7.2, 101.5, -9.0], [6.0, 107.0, -9.8], [4.0, 112.4, -9.8]], [0.8, 1.3], { te: 0.1, hint: [0, 0, 1] }));
+  add('pectoralis-minor', () => merge([0, 1, 2].map((k) => { const y = 133 - k * 2.2, e = env(y); const o = [e.rx * 0.62, y, e.zc + e.rz * 0.9]; return fus([o, A(coracoid, [-3.0 + k * 0.8, -4.0 + k * 1.6, 1.4]), A(coracoid, [0.2, -0.3, 0.4])], [0.5, 0.65], { te: 0.12, hint: [1, 0, 0] }); })));
+  add('teres-major', () => fus([A(P_infAng(), [0.4, 0.2, -0.4]), A(at(hum, 0.1), [-0.4, 0, -1.6]), A(at(hum, 0.14), [-1.1, 0, 0.1])], [0.8, 1.2], { te: 0.1, hint: [0, 0, 1] }));
+  add('brachialis-coracobrachialis', () => {
+    const br = fus([A(at(hum, 0.5), [0.4, 0, 1.1]), A(at(hum, 0.85), [0.1, 0, 1.3]), A(at(hum, 1), [-0.1, -0.4, 1.0]), A(uln[0], [-0.1, -1.6, 1.4])], [0.7, 1.35], { te: 0.1, hint: [1, 0, 0] });
+    const co = fus([A(coracoid, [-0.3, -0.4, 0.0]), A(at(hum, 0.14), [-1.1, 0, 0.9]), A(at(hum, 0.4), [-1.2, 0, 0.5])], [0.4, 0.6], { te: 0.1, hint: [1, 0, 0] });
+    return merge([br, co]);
+  });
+  add('pronator-teres', () => fus([A(at(hum, 1), [-2.3, -0.5, 0.5]), A(at(rad, 0.2), [-0.6, 0, 1.4]), A(at(rad, 0.5), [1.0, 0, 0.6])], [0.45, 0.7], { te: 0.1, hint: [0, 0, 1] }));
+
+  // ============================ hand: tendons along each finger, thenar and hypothenar ============================
+  const centroidSafe = (id) => { try { return centroid(id); } catch (e) { return null; } };
+  add('finger-tendons', () => {
+    const out = [];
+    for (let n = 1; n <= 5; n++) {
+      const segs = n === 1 ? ['finger-1-prox-L', 'finger-1-dist-L'] : [`finger-${n}-prox-L`, `finger-${n}-mid-L`, `finger-${n}-dist-L`];
+      const pts = [A(at(rad, 1), [(n - 3) * 0.55, -0.2, 1.0])];
+      const mc = centroidSafe(`metacarpal-${n}-L`); if (mc) pts.push(A(mc, [0, 0, 1.1]));
+      for (const id of segs) { try { const cl = centerline(P(id), 3, 0.15, 0.85); for (const p of cl) pts.push(A(p, [0, 0, 0.62])); } catch (e) {} }
+      if (pts.length > 3) out.push(col(H.tubeM(pts, 0.14, { K: 6, capN: 1, step: 0.35 }), TENDON, 0.03));
+    }
+    return merge(out);
+  });
+  add('hand-muscles', () => {
+    const out = [];
+    const t = centroidSafe('metacarpal-1-L'), h = centroidSafe('metacarpal-5-L');
+    if (t) out.push(col(sdfMesh(ell(A(t, [-0.5, 0.9, 1.1]), [1.15, 2.1, 0.95], [0, 0, 24]), A(t, [-4, -3, -1]), A(t, [4, 5, 4]), 0.08, null), MUSCLE, 0.06));
+    if (h) out.push(col(sdfMesh(ell(A(h, [0.5, 0.6, 1.0]), [0.9, 2.3, 0.8], [0, 0, -12]), A(h, [-4, -4, -1]), A(h, [4, 5, 4]), 0.08, null), MUSCLE, 0.06));
+    return merge(out);
+  });
+
+  // ============================ hip, thigh, leg and foot (more) ============================
+  add('gluteus-minimus-piriformis', () => {
+    const gm = [0, 1, 2].map((k) => fus([A(CREST[1 + k], [-2.4, -6.2, 0]), A(V3.mix(A(CREST[1 + k], [-2.4, -6.2, 0]), troch, 0.5), [1.0, 0.4, 0]), A(troch, [0, -0.6, 0.4])], [0.55, 0.85], { te: 0.1, hint: [1, 0, 0] }));
+    const pir = fus([[2.0, 92.8, -6.0], [5.6, 91.6, -7.0], A(troch, [-0.4, 0.2, -0.2])], [0.55, 0.9], { te: 0.1, hint: [0, 0, 1] });
+    return merge([...gm, pir]);
+  });
+  add('tfl-iliotibial', () => merge([
+    fus([A(ASIS, [1.2, -0.4, 0.2]), A(at(fem, 0.1), [3.6, 0, 1.4]), A(at(fem, 0.25), [3.9, 0, 0.9])], [0.65, 1.15], { te: 0.1, hint: [1, 0, 0] }),
+    fus([A(at(fem, 0.2), [3.9, 0, 0.7]), A(at(fem, 0.6), [3.9, 0, 0.3]), A(at(fem, 1), [3.6, -0.6, 0.2]), A(tib[0], [2.6, -2.2, 1.0])], [0.18, 0.95], { te: 0.02, tw: 0.3, p: 0.2, hint: [1, 0, 0], color: TENDON })]));
+  add('pectineus', () => fus([A(PUB, [0.8, 1.0, -0.2]), A(at(fem, 0.04), [-2.2, 0, 0.2]), A(at(fem, 0.2), [-1.9, 0, -1.4])], [0.55, 1.0], { te: 0.12, hint: [0, 0, 1] }));
+  add('popliteus', () => fus([A(at(fem, 1), [1.6, -1.0, -2.0]), A(tib[0], [0.4, -1.2, -2.4]), A(at(tib, 0.12), [-1.0, 0, -1.6])], [0.5, 0.85], { te: 0.12, hint: [1, 0, 0] }));
+  add('shin-extensors', () => {
+    const edl = fus([A(tib[0], [2.4, -1.4, 1.6]), A(at(tib, 0.4), [2.8, 0, 1.6]), A(at(tib, 0.9), [1.2, 0, 2.2]), A(centroidSafe('metatarsal-3-L') || at(tib, 1), [0, 1.0, -2.0])], [0.55, 0.8], { te: 0.3, hint: [1, 0, 0] });
+    const ehl = fus([A(at(tib, 0.3), [2.1, 0, 1.4]), A(at(tib, 0.85), [0.8, 0, 2.1]), A(centroidSafe('metatarsal-1-L') || at(tib, 1), [0, 1.0, 0.2])], [0.3, 0.45], { te: 0.3, hint: [1, 0, 0] });
+    return merge([edl, ehl]);
+  });
+  add('fibularis-brevis', () => fus([A(at(fib, 0.5), [1.1, 0, 0.2]), A(at(fib, 1), [1.4, -1.2, -0.6]), A(centroidSafe('metatarsal-5-L') || at(fib, 1), [0.4, 0.6, -1.0])], [0.45, 0.7], { te: 0.3, hint: [1, 0, 0] }));
+  add('foot-muscles', () => {
+    const out = [];
+    const heelC = extreme(calc, (x, y, z) => -y), mts = [1, 2, 3, 4, 5].map((n) => centroidSafe(`metatarsal-${n}-L`)).filter(Boolean);
+    const floorY = 0.9;
+    for (const m of mts) out.push(col(H.tubeM([A(heelC, [0, 0.4, 0.8]), [(heelC[0] + m[0]) / 2, floorY + 0.5, (heelC[2] + m[2]) / 2], [m[0], floorY + 0.4, m[2] + 3.4]], 0.3, { K: 6, capN: 1, step: 0.4 }), TENDON, 0.03));
+    if (mts.length) {
+      const m1 = mts[0], m5 = mts[mts.length - 1];
+      const fc = [(m1[0] + m5[0]) / 2, 1.6, (heelC[2] + m1[2]) / 2 + 0.6];
+      out.push(col(sdfMesh(ell(fc, [Math.abs(m1[0] - m5[0]) / 2 + 0.4, 0.8, 4.2]), A(fc, [-6, -3, -7]), A(fc, [6, 3, 7]), 0.1, null), MUSCLE2, 0.06));
+      out.push(col(H.tubeM([A(heelC, [-0.6, 0.8, 0.6]), A(m1, [-0.2, -0.2, 1.6])], 0.55, { K: 8, step: 0.4 }), MUSCLE, 0.06));
+    }
+    return merge(out);
   });
 
   return items;
